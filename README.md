@@ -95,9 +95,10 @@ example in CI. `-Zip <path>` makes it use a release zip that was downloaded befo
 in `Native~/metas`, and the script copies them next to the DLLs. It also copies `nvngx_dlss.dll` into `Plugins/x86_64`
 so that the harness and the package's tests can run in this repository, but releases leave it out.
 
-When the plugin's source changes on any branch, the Native plug-in workflow builds `Retooled.DLSS.Native.dll` and commits it to
-that branch. Publishing a GitHub release tagged `v<version>` packs the package with the Streamline DLLs and adds it to
-the KSP1Retooled UPM registry.
+When the plugin's source changes on any branch, the Native plug-in workflow builds `Retooled.DLSS.Native.dll` and
+commits it to that branch. Publishing a GitHub release tagged `v<version>` packs the package with the Streamline DLLs,
+signs it and adds it to the KSP1Retooled UPM registry. Both workflows use the shared steps in
+[KSP1Retooled/upm](https://github.com/KSP1Retooled/upm).
 
 The build script copies `Retooled.DLSS.Native.dll` into `Plugins/x86_64`. Close the Unity editor first if it has loaded the plugin,
 because it keeps the DLL open.
