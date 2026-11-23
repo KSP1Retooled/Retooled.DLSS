@@ -1,6 +1,6 @@
 name: Native plug-in
 
-# Whenever the native plug-in's source changes, build RetooledDLSS.dll and commit it to the branch that changed.
+# Whenever the native plug-in's source changes, build Retooled.DLSS.Native.dll and commit it to the branch that changed.
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: native-windows
-          path: Plugins/x86_64/RetooledDLSS.dll
+          path: Plugins/x86_64/Retooled.DLSS.Native.dll
           retention-days: 7
 
   commit:
@@ -69,7 +69,7 @@ jobs:
 
       - shell: bash
         run: |
-          git add Plugins/x86_64/RetooledDLSS.dll
+          git add Plugins/x86_64/Retooled.DLSS.Native.dll
           if git diff --cached --quiet; then
             echo "The binary did not change."
             exit 0

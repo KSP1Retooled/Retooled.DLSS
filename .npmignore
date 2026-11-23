@@ -1,4 +1,7 @@
-# npm reads this file instead of .gitignore, so the release package includes the NVIDIA files that fetch-sdk.ps1
-# downloads, which git ignores.
+# npm reads this file instead of .gitignore, so the release package includes the Streamline DLLs that fetch-sdk.ps1
+# downloads, which git ignores. NVIDIA's DLSS runtime stays out: its license covers distributing it with an application,
+# so the application provides it.
 /Native~/build/
 /.github/
+/Plugins/x86_64/nvngx_dlss.*
+/Native~/metas/nvngx_dlss.*

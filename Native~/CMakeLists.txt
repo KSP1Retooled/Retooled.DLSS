@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(RetooledDLSS LANGUAGES CXX)
+project(Retooled.DLSS.Native LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,10 +14,12 @@ target_include_directories(DlssCore PUBLIC src PRIVATE streamline/include)
 target_compile_definitions(DlssCore PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(DlssCore PRIVATE wintrust crypt32)
 
-add_library(RetooledDLSS SHARED src/Plugin.cpp)
-target_include_directories(RetooledDLSS PRIVATE unity)
-target_compile_definitions(RetooledDLSS PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(RetooledDLSS PRIVATE DlssCore)
+# The C# assembly is Retooled.DLSS.dll, so the native plugin needs a name of its own.
+add_library(DlssPlugin SHARED src/Plugin.cpp)
+set_target_properties(DlssPlugin PROPERTIES OUTPUT_NAME Retooled.DLSS.Native)
+target_include_directories(DlssPlugin PRIVATE unity)
+target_compile_definitions(DlssPlugin PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(DlssPlugin PRIVATE DlssCore)
 
 # Runs the same code on its own devices, without Unity. See test/Harness.cpp.
 add_executable(DlssHarness test/Harness.cpp)

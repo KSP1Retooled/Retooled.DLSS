@@ -1,6 +1,9 @@
 using System.Collections;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.TestTools;
@@ -137,10 +140,24 @@ public class DlssContextTests
             Assert.Ignore("sl.interposer.dll isn't in Plugins/x86_64");
     }
 
+    // The package leaves out NVIDIA's runtime, so the project provides it: in this repo fetch-sdk.ps1 puts it in
+    // Plugins/x86_64, and an application keeps it with its own plugins.
+    static string RuntimeFolder()
+    {
+        string path = AssetDatabase.FindAssets("nvngx_dlss")
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .FirstOrDefault(asset => Path.GetFileName(asset) == "nvngx_dlss.dll");
+        return path == null ? null : Path.GetFullPath(Path.GetDirectoryName(path));
+    }
+
     static DlssContext NewContext()
     {
+        string runtime = RuntimeFolder();
+        if (ExpectDlss && runtime == null)
+            Assert.Ignore("nvngx_dlss.dll isn't in the project");
         // Any GUID identifies a development build to NVIDIA's runtime.
         DlssContext.SetApplication(0, "5a0ad5c3-9d0b-4d6f-9f3b-3e7f0d1c8a11", Application.unityVersion);
+        DlssContext.RuntimeDirectory = runtime;
         return new DlssContext(Size, DlssMode.Dlaa, DlssOptionFlags.None);
     }
 

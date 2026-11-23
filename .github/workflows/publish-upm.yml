@@ -1,6 +1,6 @@
 name: Publish to UPM
 
-# When a release is published, pack the Unity package with the native plug-in and NVIDIA's Streamline and DLSS DLLs,
+# When a release is published, pack the Unity package with the native plug-in and NVIDIA's Streamline DLLs,
 # attach the .tgz to the release, and add the release to the KSP1Retooled registry
 # (https://ksp1retooled.github.io/upm/). To publish an existing release again, run this workflow by hand with its tag.
 
@@ -47,14 +47,14 @@ jobs:
       - name: Check that the binary was built from the tagged source
         run: |
           source=$(git rev-list -1 HEAD -- Native~/CMakeLists.txt Native~/src Native~/unity)
-          binary=$(git rev-list -1 HEAD -- Plugins/x86_64/RetooledDLSS.dll)
+          binary=$(git rev-list -1 HEAD -- Plugins/x86_64/Retooled.DLSS.Native.dll)
           if [[ -z "$binary" ]] || ! git merge-base --is-ancestor "$source" "$binary"; then
-            echo "::error::RetooledDLSS.dll is older than the plug-in's source. Wait for the Native plug-in workflow to commit it, then tag that commit."
+            echo "::error::Retooled.DLSS.Native.dll is older than the plug-in's source. Wait for the Native plug-in workflow to commit it, then tag that commit."
             exit 1
           fi
 
       # NVIDIA's files are not in the repository. fetch-sdk.ps1 puts the DLLs and their .meta files in Plugins/x86_64
-      # and Streamline's license in Native~/streamline.
+      # and Streamline's license in Native~/streamline. It fetches the DLSS runtime too, which .npmignore leaves out.
       - name: Fetch the Streamline SDK
         shell: pwsh
         run: Native~/fetch-sdk.ps1
@@ -66,11 +66,16 @@ jobs:
         run: |
           asset=$(npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" | jq -er '.[0].filename')
           tar -tzf "$RUNNER_TEMP/$asset" > "$RUNNER_TEMP/contents.txt"
-          for file in RetooledDLSS.dll sl.interposer.dll sl.common.dll sl.dlss.dll nvngx_dlss.dll nvngx_dlss.license.txt; do
+          for file in Retooled.DLSS.Native.dll sl.interposer.dll sl.common.dll sl.dlss.dll; do
             grep -qx "package/Plugins/x86_64/$file" "$RUNNER_TEMP/contents.txt"
             grep -qx "package/Plugins/x86_64/$file.meta" "$RUNNER_TEMP/contents.txt"
           done
           grep -qx "package/Native~/streamline/license.txt" "$RUNNER_TEMP/contents.txt"
+          # NVIDIA's license covers distributing the DLSS runtime as part of an application, not in this package.
+          if grep -q nvngx "$RUNNER_TEMP/contents.txt"; then
+            echo "::error::The package includes NVIDIA's DLSS runtime. .npmignore should leave it out."
+            exit 1
+          fi
           assets=$(gh release view --repo "$GITHUB_REPOSITORY" --json assets -- "$TAG")
           if jq -e --arg name "$asset" 'any(.assets[]; .name == $name)' <<< "$assets" > /dev/null; then
             echo "Using the existing release asset $asset"

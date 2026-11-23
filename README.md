@@ -3,7 +3,7 @@
 NVIDIA DLSS Super Resolution and DLAA for Unity's built-in render pipeline on Windows x64.
 
 The package calls DLSS through NVIDIA's Streamline SDK. Streamline records its work with the graphics API's own
-objects, which C# can't reach, so the package includes a small native plugin, `RetooledDLSS.dll`, that Unity calls on
+objects, which C# can't reach, so the package includes a small native plugin, `Retooled.DLSS.Native.dll`, that Unity calls on
 the render thread. The plugin loads Streamline's `sl.interposer.dll` from its own folder and makes every SDK call
 there. `DlssContext` is the C# side.
 
@@ -14,6 +14,17 @@ there. `DlssContext` is the C# side.
 - On Direct3D 12, a Unity version that has the `IUnityGraphicsD3D12v8` plugin interface.
 
 On anything else a context fails, and `DlssContext.Session` and `context.Status` say why.
+
+## The DLSS runtime
+
+The package doesn't include NVIDIA's DLSS runtime, `nvngx_dlss.dll`. NVIDIA's RTX SDKs license covers distributing it
+as part of an application, so the application that uses this package provides it, from the Streamline SDK release
+under `bin/x64`.
+
+- In a player, Unity puts every native plugin in one folder, so a runtime that the application imports as a Windows
+  x64 plugin ends up next to this package's plugin, where Streamline looks for it.
+- In the editor, the runtime is somewhere else in the project. Set `DlssContext.RuntimeDirectory` to its folder before
+  creating the first context.
 
 ## Use
 
@@ -81,23 +92,25 @@ NVIDIA's files are not in this repository. `build.ps1` first runs `Native~/fetch
 Streamline SDK release from GitHub, checks its SHA-256, and copies the headers into `Native~/streamline` and the
 Streamline and DLSS DLLs into `Plugins/x86_64`. Run `fetch-sdk.ps1` on its own to get the DLLs without building, for
 example in CI. `-Zip <path>` makes it use a release zip that was downloaded before. The DLLs' `.meta` files are kept
-in `Native~/metas`, and the script copies them next to the DLLs.
+in `Native~/metas`, and the script copies them next to the DLLs. It also copies `nvngx_dlss.dll` into `Plugins/x86_64`
+so that the harness and the package's tests can run in this repository, but releases leave it out.
 
-When the plugin's source changes on any branch, the Native plug-in workflow builds `RetooledDLSS.dll` and commits it to
-that branch. Publishing a GitHub release tagged `v<version>` packs the package with NVIDIA's files and adds it to the
-KSP1Retooled UPM registry.
+When the plugin's source changes on any branch, the Native plug-in workflow builds `Retooled.DLSS.Native.dll` and commits it to
+that branch. Publishing a GitHub release tagged `v<version>` packs the package with the Streamline DLLs and adds it to
+the KSP1Retooled UPM registry.
 
-The build script copies `RetooledDLSS.dll` into `Plugins/x86_64`. Close the Unity editor first if it has loaded the plugin,
+The build script copies `Retooled.DLSS.Native.dll` into `Plugins/x86_64`. Close the Unity editor first if it has loaded the plugin,
 because it keeps the DLL open.
 
 `-Test` also runs `DlssHarness.exe`, which evaluates DLAA on Direct3D 11 and Direct3D 12 devices of its own, without
-Unity. It needs an NVIDIA RTX GPU.
+Unity, once with `nvngx_dlss.dll` next to Streamline and once with it in a folder of its own. It needs an NVIDIA RTX
+GPU.
 
 ## Licenses
 
 - The Streamline DLLs in `Plugins/x86_64` and the headers in `Native~/streamline` are NVIDIA's, under the MIT license
   in `Native~/streamline/license.txt`.
-- `nvngx_dlss.dll` is NVIDIA's DLSS runtime, under the NVIDIA RTX SDKs license in
-  `Plugins/x86_64/nvngx_dlss.license.txt`. That license has conditions on distribution and on crediting NVIDIA in the
-  application. Read it before shipping.
+- `nvngx_dlss.dll` is NVIDIA's DLSS runtime, under the NVIDIA RTX SDKs license in `bin/x64/nvngx_dlss.license.txt`
+  of the Streamline SDK. That license has conditions on distribution and on crediting NVIDIA in the application. Read
+  it before shipping.
 - The headers in `Native~/unity` are Unity's, under the Unity Companion License in `Native~/unity/LICENSE.md`.

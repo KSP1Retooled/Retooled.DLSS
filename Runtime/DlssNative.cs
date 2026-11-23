@@ -3,10 +3,10 @@ using System.Runtime.InteropServices;
 
 namespace Retooled.DLSS;
 
-/// <summary>Declarations for RetooledDLSS.dll, the native plugin in <c>Native~</c>.</summary>
+/// <summary>Declarations for Retooled.DLSS.Native.dll, the native plugin in <c>Native~</c>.</summary>
 internal static class DlssNative
 {
-    const string Plugin = "RetooledDLSS";
+    const string Plugin = "Retooled.DLSS.Native";
 
     /// <summary>The number of frame slots in a native context, <c>FrameSlots</c> in Plugin.cpp.</summary>
     internal const int FrameSlots = 8;
@@ -93,6 +93,9 @@ internal static class DlssNative
         byte[] nullTerminatedProjectId,
         byte[] nullTerminatedEngineVersion
     );
+
+    [DllImport(Plugin)]
+    internal static extern void RetooledDLSS_SetRuntimeDirectory(byte[] nullTerminatedDirectory);
 
     [DllImport(Plugin)]
     internal static extern void RetooledDLSS_SetLogLevel(DlssLogLevel level);

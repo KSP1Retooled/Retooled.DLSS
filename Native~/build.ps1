@@ -1,4 +1,4 @@
-# Builds RetooledDLSS.dll and the test harness. Needs CMake, Ninja, LLVM's clang-cl and the Windows SDK. It runs
+# Builds Retooled.DLSS.Native.dll and the test harness. Needs CMake, Ninja, LLVM's clang-cl and the Windows SDK. It runs
 # fetch-sdk.ps1 first, which downloads NVIDIA's Streamline SDK if its files aren't in place yet.
 #
 #   build.ps1            builds the plugin and copies it into Plugins/x86_64
@@ -35,18 +35,28 @@ cmake --build $build
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
 if ($Test) {
-    # The harness loads Streamline from its own folder, so it runs from a folder that holds the SDK's DLLs.
+    # The harness loads Streamline from its own folder, so it runs from a folder that holds the SDK's DLLs. It runs
+    # twice on each API: with nvngx_dlss.dll next to Streamline, as in a player, and with it in a folder of its own,
+    # which the plugin is told about, as in an editor where the package can't hold it.
     $run = Join-Path $build 'harness'
-    New-Item -ItemType Directory -Force $run | Out-Null
+    $runtime = Join-Path $build 'harness-runtime'
+    if (Test-Path $run) { Remove-Item -Recurse -Force $run }
+    New-Item -ItemType Directory -Force $run, $runtime | Out-Null
     Copy-Item (Join-Path $build 'DlssHarness.exe') $run -Force
-    foreach ($name in 'sl.interposer.dll', 'sl.common.dll', 'sl.dlss.dll', 'nvngx_dlss.dll') {
+    foreach ($name in 'sl.interposer.dll', 'sl.common.dll', 'sl.dlss.dll') {
         Copy-Item (Join-Path $plugins $name) $run -Force
     }
+    Copy-Item (Join-Path $plugins 'nvngx_dlss.dll') $runtime -Force
+    foreach ($api in 'd3d11', 'd3d12') {
+        & (Join-Path $run 'DlssHarness.exe') $api 16 $runtime
+        if ($LASTEXITCODE -ne 0) { throw "The harness failed on $api with nvngx_dlss.dll in its own folder" }
+    }
+    Copy-Item (Join-Path $plugins 'nvngx_dlss.dll') $run -Force
     foreach ($api in 'd3d11', 'd3d12') {
         & (Join-Path $run 'DlssHarness.exe') $api
-        if ($LASTEXITCODE -ne 0) { throw "The harness failed on $api" }
+        if ($LASTEXITCODE -ne 0) { throw "The harness failed on $api with nvngx_dlss.dll next to Streamline" }
     }
 }
 
-Copy-Item (Join-Path $build 'RetooledDLSS.dll') $plugins -Force
-Write-Host "Copied RetooledDLSS.dll to $(Resolve-Path $plugins)"
+Copy-Item (Join-Path $build 'Retooled.DLSS.Native.dll') $plugins -Force
+Write-Host "Copied Retooled.DLSS.Native.dll to $(Resolve-Path $plugins)"

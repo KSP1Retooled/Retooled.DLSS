@@ -197,12 +197,15 @@ namespace dlss
             return session;
         }
 
-        const wchar_t* pluginPaths[] = {ModuleDirectory()};
+        // Streamline loads its plugins from the first folder that has them, and NGX looks for nvngx_dlss.dll in each
+        // folder in turn.
+        bool hasRuntimeDirectory = application.runtimeDirectory != nullptr && application.runtimeDirectory[0] != L'\0';
+        const wchar_t* pluginPaths[] = {ModuleDirectory(), application.runtimeDirectory};
         const sl::Feature features[] = {sl::kFeatureDLSS};
         sl::Preferences preferences{};
         preferences.logLevel = static_cast<sl::LogLevel>(logLevel);
         preferences.pathsToPlugins = pluginPaths;
-        preferences.numPathsToPlugins = 1;
+        preferences.numPathsToPlugins = hasRuntimeDirectory ? 2 : 1;
         preferences.logMessageCallback = OnStreamlineLog;
         // Manual hooking keeps Streamline out of the device and swap chain that the engine created. The default flags
         // also download updated plugins and models, which the application has not asked for.

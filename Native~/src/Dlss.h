@@ -33,6 +33,8 @@ namespace dlss
         uint32_t applicationId;
         const char* projectId;
         const char* engineVersion;
+        // The folder that holds NVIDIA's DLSS runtime, nvngx_dlss.dll, or null if it is next to this plugin.
+        const wchar_t* runtimeDirectory;
     };
 
     // Shared with C# as DlssNative.Session, field for field.

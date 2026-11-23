@@ -90,6 +90,7 @@ namespace
     uint32_t applicationId;
     std::string projectId;
     std::string engineVersion;
+    std::wstring runtimeDirectory;
     std::atomic<int32_t> logLevel{LogWarnings};
     std::atomic<uint32_t> nextViewport{1};
 
@@ -141,15 +142,18 @@ namespace
         {
             std::string project;
             std::string version;
+            std::wstring runtime;
             dlss::Application application{};
             {
                 std::lock_guard lock(sessionMutex);
                 project = projectId;
                 version = engineVersion;
+                runtime = runtimeDirectory;
                 application.applicationId = applicationId;
             }
             application.projectId = project.c_str();
             application.engineVersion = version.c_str();
+            application.runtimeDirectory = runtime.c_str();
 
             void* device = d3d12 != nullptr ? static_cast<void*>(d3d12->GetDevice()) : d3d11->GetDevice();
             dlss::GraphicsApi api = d3d12 != nullptr ? dlss::GraphicsApi::Direct3D12 : dlss::GraphicsApi::Direct3D11;
@@ -288,6 +292,21 @@ extern "C"
         applicationId = id;
         projectId = project != nullptr ? project : "";
         engineVersion = version != nullptr ? version : "";
+    }
+
+    // Applies when Streamline starts, which is when the first context is created. The path is UTF-8.
+    UNITY_INTERFACE_EXPORT void RetooledDLSS_SetRuntimeDirectory(const char* directory)
+    {
+        std::wstring wide;
+        int length = directory != nullptr ? MultiByteToWideChar(CP_UTF8, 0, directory, -1, nullptr, 0) : 0;
+        if (length > 1)
+        {
+            wide.resize(length);
+            MultiByteToWideChar(CP_UTF8, 0, directory, -1, wide.data(), length);
+            wide.resize(length - 1);
+        }
+        std::lock_guard lock(sessionMutex);
+        runtimeDirectory = wide;
     }
 
     // Applies when Streamline starts, which is when the first context is created.

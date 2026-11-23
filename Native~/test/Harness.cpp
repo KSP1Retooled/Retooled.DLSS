@@ -1,15 +1,16 @@
 // Runs DLSS through Dlss.h on a device that this program creates, without Unity.
 //
-//     DlssHarness d3d11|d3d12 [frames]
+//     DlssHarness d3d11|d3d12 [frames] [folder of nvngx_dlss.dll]
 //
 // It fills a color texture with a pattern, evaluates DLAA on it for a number of frames, and reads the output back.
 // The exit code is zero when every step succeeded and the output is not blank. The Streamline DLLs must be next to
-// the executable.
+// the executable. nvngx_dlss.dll must be there too, unless the third argument names the folder that holds it.
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include <windows.h>
@@ -30,7 +31,7 @@ namespace
     constexpr uint32_t DlaaMode = 6;
 
     // Any GUID identifies a development build to NGX.
-    const dlss::Application Application = {0, "5a0ad5c3-9d0b-4d6f-9f3b-3e7f0d1c8a11", "harness"};
+    dlss::Application Application = {0, "5a0ad5c3-9d0b-4d6f-9f3b-3e7f0d1c8a11", "harness", nullptr};
 
     void Log(int32_t type, const char* message)
     {
@@ -390,11 +391,17 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf("usage: DlssHarness d3d11|d3d12 [frames]\n");
+        std::printf("usage: DlssHarness d3d11|d3d12 [frames] [folder of nvngx_dlss.dll]\n");
         return 2;
     }
 
     uint32_t frames = argc > 2 ? static_cast<uint32_t>(std::atoi(argv[2])) : 16;
+    std::wstring runtimeDirectory;
+    if (argc > 3)
+    {
+        runtimeDirectory.assign(argv[3], argv[3] + std::strlen(argv[3]));
+        Application.runtimeDirectory = runtimeDirectory.c_str();
+    }
     bool passed;
     if (std::strcmp(argv[1], "d3d11") == 0)
         passed = RunD3D11(frames);

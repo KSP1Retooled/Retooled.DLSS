@@ -49,6 +49,17 @@ public sealed class DlssContext : IDisposable
     /// <summary>The graphics API the plugin saw at device creation.</summary>
     public static GraphicsDeviceType Renderer => (GraphicsDeviceType)DlssNative.RetooledDLSS_GetRenderer();
 
+    /// <summary>The folder that holds NVIDIA's DLSS runtime, <c>nvngx_dlss.dll</c>. Applies when Streamline starts.</summary>
+    /// <remarks>
+    /// The package doesn't include the runtime, because NVIDIA's license covers distributing it as part of an
+    /// application. In a player, Unity puts every native plugin in one folder, so leave this unset and ship the runtime
+    /// as a plugin of the application. In the editor, set it to the folder where the application keeps the runtime.
+    /// </remarks>
+    public static string RuntimeDirectory
+    {
+        set => DlssNative.RetooledDLSS_SetRuntimeDirectory(Encoding.UTF8.GetBytes(value + "\0"));
+    }
+
     /// <summary>Which Streamline messages go to the Unity log. Applies when Streamline starts.</summary>
     public static DlssLogLevel LogLevel
     {
