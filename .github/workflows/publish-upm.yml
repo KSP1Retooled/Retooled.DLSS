@@ -1,0 +1,91 @@
+name: Publish to UPM
+
+# When a release is published, pack the Unity package with the native plug-in and NVIDIA's Streamline and DLSS DLLs,
+# attach the .tgz to the release, and add the release to the KSP1Retooled registry
+# (https://ksp1retooled.github.io/upm/). To publish an existing release again, run this workflow by hand with its tag.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish
+        required: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pack:
+    name: Pack the package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The registry takes the version from package.json, so a tag that names another version would publish
+      # something other than what the release says.
+      - name: Check that the tag names the package's version
+        run: |
+          version=$(jq -er .version package.json)
+          if [[ "${TAG#v}" != "$version" ]]; then
+            echo "::error::The tag $TAG does not match version $version in package.json. Tag the release v$version."
+            exit 1
+          fi
+
+      # The native workflow commits the binary after every change to the plug-in's source. A release that was tagged
+      # before that commit landed would ship a binary built from older source.
+      - name: Check that the binary was built from the tagged source
+        run: |
+          source=$(git rev-list -1 HEAD -- Native~/CMakeLists.txt Native~/src Native~/unity)
+          binary=$(git rev-list -1 HEAD -- Plugins/x86_64/RetooledDLSS.dll)
+          if [[ -z "$binary" ]] || ! git merge-base --is-ancestor "$source" "$binary"; then
+            echo "::error::RetooledDLSS.dll is older than the plug-in's source. Wait for the Native plug-in workflow to commit it, then tag that commit."
+            exit 1
+          fi
+
+      # NVIDIA's files are not in the repository. fetch-sdk.ps1 puts the DLLs and their .meta files in Plugins/x86_64
+      # and Streamline's license in Native~/streamline.
+      - name: Fetch the Streamline SDK
+        shell: pwsh
+        run: Native~/fetch-sdk.ps1
+
+      # .npmignore replaces .gitignore for npm, so the fetched files go into the package.
+      - name: Pack and attach the package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset=$(npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" | jq -er '.[0].filename')
+          tar -tzf "$RUNNER_TEMP/$asset" > "$RUNNER_TEMP/contents.txt"
+          for file in RetooledDLSS.dll sl.interposer.dll sl.common.dll sl.dlss.dll nvngx_dlss.dll nvngx_dlss.license.txt; do
+            grep -qx "package/Plugins/x86_64/$file" "$RUNNER_TEMP/contents.txt"
+            grep -qx "package/Plugins/x86_64/$file.meta" "$RUNNER_TEMP/contents.txt"
+          done
+          grep -qx "package/Native~/streamline/license.txt" "$RUNNER_TEMP/contents.txt"
+          assets=$(gh release view --repo "$GITHUB_REPOSITORY" --json assets -- "$TAG")
+          if jq -e --arg name "$asset" 'any(.assets[]; .name == $name)' <<< "$assets" > /dev/null; then
+            echo "Using the existing release asset $asset"
+          else
+            gh release upload --repo "$GITHUB_REPOSITORY" -- "$TAG" "$RUNNER_TEMP/$asset"
+          fi
+
+  publish:
+    name: Publish to the registry
+    needs: pack
+    permissions:
+      contents: read
+    uses: KSP1Retooled/upm/.github/workflows/publish.yml@main
+    with:
+      tag: ${{ inputs.tag || github.event.release.tag_name }}
+    secrets:
+      APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

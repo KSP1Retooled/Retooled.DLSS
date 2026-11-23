@@ -80,7 +80,12 @@ Native~/build.ps1 -Test
 NVIDIA's files are not in this repository. `build.ps1` first runs `Native~/fetch-sdk.ps1`, which downloads the
 Streamline SDK release from GitHub, checks its SHA-256, and copies the headers into `Native~/streamline` and the
 Streamline and DLSS DLLs into `Plugins/x86_64`. Run `fetch-sdk.ps1` on its own to get the DLLs without building, for
-example in CI. `-Zip <path>` makes it use a release zip that was downloaded before.
+example in CI. `-Zip <path>` makes it use a release zip that was downloaded before. The DLLs' `.meta` files are kept
+in `Native~/metas`, and the script copies them next to the DLLs.
+
+When the plugin's source changes on any branch, the Native plug-in workflow builds `RetooledDLSS.dll` and commits it to
+that branch. Publishing a GitHub release tagged `v<version>` packs the package with NVIDIA's files and adds it to the
+KSP1Retooled UPM registry.
 
 The build script copies `RetooledDLSS.dll` into `Plugins/x86_64`. Close the Unity editor first if it has loaded the plugin,
 because it keeps the DLL open.

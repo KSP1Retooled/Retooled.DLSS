@@ -1,0 +1,83 @@
+name: Native plug-in
+
+# Whenever the native plug-in's source changes, build RetooledDLSS.dll and commit it to the branch that changed.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'Native~/CMakeLists.txt'
+      - 'Native~/src/**'
+      - 'Native~/test/**'
+      - 'Native~/unity/**'
+      - 'Native~/build.ps1'
+      - 'Native~/fetch-sdk.ps1'
+      - '.github/workflows/native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch replaces an older run, so the binary always comes from the newest source.
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      # The runner has LLVM's clang-cl and the Windows SDK, which build.ps1 needs, but not Ninja.
+      - name: Install Ninja
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja --no-progress -y }
+
+      # build.ps1 downloads the Streamline headers with fetch-sdk.ps1 first. The harness needs an RTX GPU, which
+      # the runner doesn't have, so it is built but not run.
+      - name: Build
+        shell: pwsh
+        run: Native~/build.ps1
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-windows
+          path: Plugins/x86_64/RetooledDLSS.dll
+          retention-days: 7
+
+  commit:
+    name: Commit the binary
+    needs: build
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      # Check out the branch rather than the commit that started the run, so that the binary lands on the branch's
+      # current head. A push made with this workflow's token does not start another run.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-windows
+          path: Plugins/x86_64
+
+      - shell: bash
+        run: |
+          git add Plugins/x86_64/RetooledDLSS.dll
+          if git diff --cached --quiet; then
+            echo "The binary did not change."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Build the native plug-in from ${GITHUB_SHA::10}"
+          for attempt in 1 2 3; do
+            git push origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            git pull --rebase origin "$GITHUB_REF_NAME"
+          done
+          exit 1

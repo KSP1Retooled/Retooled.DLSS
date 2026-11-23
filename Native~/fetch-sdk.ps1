@@ -1,7 +1,7 @@
 # Downloads NVIDIA's Streamline SDK release and copies the files that the package needs out of it:
 #
 #   - the headers, into Native~/streamline/include, for building the plugin
-#   - the Streamline and DLSS DLLs, into Plugins/x86_64, for running it
+#   - the Streamline and DLSS DLLs, into Plugins/x86_64, for running it, with their .meta files from Native~/metas
 #   - their licenses
 #
 #   fetch-sdk.ps1                  downloads the release zip from GitHub, unless the files are already there
@@ -26,6 +26,7 @@ $streamline = Join-Path $native 'streamline'
 $include = Join-Path $streamline 'include'
 $plugins = [System.IO.Path]::GetFullPath((Join-Path $native '../Plugins/x86_64'))
 $stamp = Join-Path $streamline 'version.txt'
+$metas = Join-Path $native 'metas'
 
 # Each file in the zip that the package needs, by its path below the SDK's top folder, and the folder it goes to.
 $files = [ordered]@{
@@ -43,6 +44,9 @@ function Test-Fetched {
     if (-not (Test-Path (Join-Path $include 'sl.h'))) { return $false }
     foreach ($entry in $files.GetEnumerator()) {
         if (-not (Test-Path (Join-Path $entry.Value (Split-Path $entry.Key -Leaf)))) { return $false }
+    }
+    foreach ($meta in Get-ChildItem (Join-Path $metas '*.meta')) {
+        if (-not (Test-Path (Join-Path $plugins $meta.Name))) { return $false }
     }
     return $true
 }
@@ -97,6 +101,9 @@ try {
             if (-not $entry) { throw "$Zip has no $($file.Key)" }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $file.Value $entry.Name), $true)
         }
+        # A package installed from a registry is read-only, so Unity can't create .meta files for these DLLs there.
+        # The repo keeps them in Native~/metas, which Unity ignores, and they go next to the DLLs here.
+        Copy-Item (Join-Path $metas '*.meta') $plugins -Force
     }
     finally {
         $archive.Dispose()

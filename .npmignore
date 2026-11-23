@@ -1,0 +1,4 @@
+# npm reads this file instead of .gitignore, so the release package includes the NVIDIA files that fetch-sdk.ps1
+# downloads, which git ignores.
+/Native~/build/
+/.github/
