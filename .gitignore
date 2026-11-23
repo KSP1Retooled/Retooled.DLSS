@@ -1,0 +1,7 @@
+/Native~/build/
+
+# NVIDIA's SDK files come from the Streamline release. Native~/fetch-sdk.ps1 downloads them.
+/Native~/streamline/
+/Plugins/x86_64/sl.*.dll
+/Plugins/x86_64/sl.*.dll.meta
+/Plugins/x86_64/nvngx_dlss.*
