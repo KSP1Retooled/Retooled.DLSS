@@ -2,20 +2,28 @@ name: Publish to UPM
 
 # When a release is published, pack the Unity package with the native plug-in and NVIDIA's Streamline DLLs, sign it,
 # attach the signed .tgz to the release, and add the release to the KSP1Retooled registry
-# (https://ksp1retooled.github.io/upm/). The steps come from KSP1Retooled/upm. To publish an existing release again,
-# run update.yml there with this repo and the tag.
+# (https://ksp1retooled.github.io/upm/). The steps come from KSP1Retooled/upm. To retry a release whose run failed
+# before its package was attached, run this workflow by hand with the tag. A release that already has its package
+# fails at the upload, because replacing a published package would break the registry's hashes.
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish
+        required: true
 
 env:
-  TAG: ${{ github.event.release.tag_name }}
+  TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
 jobs:
   pack:
     name: Pack the package
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       filename: ${{ steps.pack.outputs.filename }}
     steps:
@@ -28,10 +36,13 @@ jobs:
       - uses: KSP1Retooled/upm/check-release@main
         with:
           tag: ${{ env.TAG }}
+          # fetch-sdk.ps1 pins the Streamline release, whose headers the plug-in is built against.
           source: |
             Native~/CMakeLists.txt
             Native~/src
             Native~/unity
+            Native~/build.ps1
+            Native~/fetch-sdk.ps1
           binaries: Plugins/x86_64/Retooled.DLSS.Native.dll
 
       # NVIDIA's files are not in the repository. fetch-sdk.ps1 puts the DLLs and their .meta files in Plugins/x86_64
@@ -61,13 +72,13 @@ jobs:
         with:
           name: package
           path: ${{ steps.pack.outputs.path }}
+          retention-days: 1
 
+  # A job of its own, so that the signing key never reaches the job that runs fetch-sdk.ps1 and npm pack.
   sign:
     name: Sign the package
     needs: pack
-    runs-on: self-hosted
-    container:
-      image: ghcr.io/ksp1retooled/ksp-ci:1
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -98,7 +109,7 @@ jobs:
       contents: read
     uses: KSP1Retooled/upm/.github/workflows/publish.yml@main
     with:
-      tag: ${{ github.event.release.tag_name }}
+      tag: ${{ inputs.tag || github.event.release.tag_name }}
     secrets:
       APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
