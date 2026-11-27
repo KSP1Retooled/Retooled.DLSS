@@ -13,6 +13,10 @@ namespace
     using PresentHook = HRESULT(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags, bool& skip);
     using AfterPresentHook = HRESULT(UINT flags);
 
+    // The hooks that it runs around vkQueuePresentKHR.
+    using VulkanPresentHook = VkResult(VkQueue queue, const VkPresentInfoKHR* presentInfo, bool& skip);
+    using VulkanAfterPresentHook = VkResult();
+
     struct State
     {
         const StreamlineLibrary* sl = nullptr;
@@ -25,6 +29,8 @@ namespace
         PFun_slDLSSGetState* getState = nullptr;
         PresentHook* present = nullptr;
         AfterPresentHook* afterPresent = nullptr;
+        VulkanPresentHook* vulkanPresent = nullptr;
+        VulkanAfterPresentHook* vulkanAfterPresent = nullptr;
         uint32_t frameIndex = 0;
         // The frame in which each viewport was last evaluated.
         std::unordered_map<uint32_t, uint32_t> evaluated;
@@ -82,19 +88,32 @@ namespace
     }
 
     // Streamline counts frames, frees resources that were released a few frames ago, and tracks its video memory
-    // budget when a frame is presented. It normally learns of a present by wrapping the application's swap chain.
-    // A plugin cannot give Unity a wrapped swap chain, so EndFrame calls the present hooks of Streamline's common
-    // plugin directly. The hook names are part of the plugin interface between sl.interposer.dll and sl.common.dll,
-    // so they are tied to the Streamline version that ships with this plugin.
+    // budget when a frame is presented. It normally learns of a present by wrapping the application's swap chain, or
+    // on Vulkan by standing in for vkQueuePresentKHR. A plugin cannot give Unity either, so EndFrame calls the
+    // present hooks of Streamline's common plugin directly. The hook names are part of the plugin interface between
+    // sl.interposer.dll and sl.common.dll, so they are tied to the Streamline version that ships with this plugin.
     int32_t ImportPresentHooks()
     {
-        int32_t result = Import(sl::kFeatureCommon, "slHookPresent", state.present);
-        if (result == dlss::Ok)
-            result = Import(sl::kFeatureCommon, "slHookAfterPresent", state.afterPresent);
+        int32_t result;
+        if (state.api == dlss::GraphicsApi::Vulkan)
+        {
+            result = Import(sl::kFeatureCommon, "slHookVkPresent", state.vulkanPresent);
+            if (result == dlss::Ok)
+                result = Import(sl::kFeatureCommon, "slHookVkAfterPresent", state.vulkanAfterPresent);
+        }
+        else
+        {
+            result = Import(sl::kFeatureCommon, "slHookPresent", state.present);
+            if (result == dlss::Ok)
+                result = Import(sl::kFeatureCommon, "slHookAfterPresent", state.afterPresent);
+        }
+
         if (result != dlss::Ok)
         {
             state.present = nullptr;
             state.afterPresent = nullptr;
+            state.vulkanPresent = nullptr;
+            state.vulkanAfterPresent = nullptr;
         }
         return result;
     }
@@ -169,6 +188,105 @@ namespace
         uint32_t resourceState = state.api == dlss::GraphicsApi::Direct3D12 ? d3d12State : 0;
         return sl::Resource(sl::ResourceType::eTex2d, texture, nullptr, nullptr, resourceState);
     }
+
+    // Streamline can't ask Vulkan what an image is like, so the resource carries its description.
+    sl::Resource ToResource(const dlss::VulkanImage& image)
+    {
+        sl::Resource resource(sl::ResourceType::eTex2d, image.image, nullptr, image.view, image.layout);
+        resource.width = image.width;
+        resource.height = image.height;
+        resource.nativeFormat = image.format;
+        resource.mipLevels = image.mipLevels;
+        resource.arrayLayers = image.layers;
+        resource.flags = 0;
+        resource.usage = image.usage;
+        return resource;
+    }
+
+    sl::RenderAPI ToRenderApi(dlss::GraphicsApi api)
+    {
+        switch (api)
+        {
+        case dlss::GraphicsApi::Direct3D12:
+            return sl::RenderAPI::eD3D12;
+        case dlss::GraphicsApi::Vulkan:
+            return sl::RenderAPI::eVulkan;
+        default:
+            return sl::RenderAPI::eD3D11;
+        }
+    }
+
+    // Gives Streamline the device and returns whether DLSS runs on its GPU.
+    void SetDevice(void* device, dlss::GraphicsApi api, dlss::Session& session)
+    {
+        sl::AdapterInfo adapter{};
+        LUID luid{};
+        if (api == dlss::GraphicsApi::Vulkan)
+        {
+            // DLSS asks Streamline for no queues of its own, so the indices only say where such queues would start.
+            auto* vulkan = static_cast<const dlss::VulkanDevice*>(device);
+            sl::VulkanInfo info{};
+            info.device = static_cast<VkDevice>(vulkan->device);
+            info.instance = static_cast<VkInstance>(vulkan->instance);
+            info.physicalDevice = static_cast<VkPhysicalDevice>(vulkan->physicalDevice);
+            info.graphicsQueueFamily = vulkan->queueFamily;
+            info.computeQueueFamily = vulkan->queueFamily;
+            session.deviceResult = static_cast<int32_t>(state.sl->SetVulkanInfo(info));
+            adapter.vkPhysicalDevice = vulkan->physicalDevice;
+        }
+        else
+        {
+            session.deviceResult = static_cast<int32_t>(state.sl->SetD3DDevice(device));
+            if (session.deviceResult == dlss::Ok && !FindAdapter(device, api, luid))
+            {
+                session.supportResult = static_cast<int32_t>(sl::Result::eErrorNoSupportedAdapterFound);
+                return;
+            }
+            adapter.deviceLUID = reinterpret_cast<uint8_t*>(&luid);
+            adapter.deviceLUIDSizeInBytes = sizeof(LUID);
+        }
+
+        if (session.deviceResult == dlss::Ok)
+            session.supportResult = static_cast<int32_t>(state.sl->IsFeatureSupported(sl::kFeatureDLSS, adapter));
+    }
+
+    int32_t EvaluateResources(uint32_t viewport, const dlss::Frame& frame, sl::Resource& color, sl::Resource& depth,
+        sl::Resource& motion, sl::Resource& output, void* commands)
+    {
+        if (!state.session.Started())
+            return dlss::ErrorNotStarted;
+
+        // Streamline accepts one set of constants per viewport and frame. A second evaluation without a present in
+        // between, such as an editor view that repaints twice, counts as a new frame.
+        auto last = state.evaluated.find(viewport);
+        if (last != state.evaluated.end() && last->second == state.frameIndex)
+            dlss::EndFrame();
+        state.evaluated[viewport] = state.frameIndex;
+
+        sl::FrameToken* token = nullptr;
+        sl::Result result = state.sl->GetNewFrameToken(token, &state.frameIndex);
+        if (result != sl::Result::eOk)
+            return static_cast<int32_t>(result);
+
+        sl::ViewportHandle handle(viewport);
+        result = state.sl->SetConstants(ToConstants(frame), *token, handle);
+        if (result != sl::Result::eOk)
+            return static_cast<int32_t>(result);
+
+        sl::Extent renderExtent{0, 0, frame.renderWidth, frame.renderHeight};
+        sl::Extent outputExtent{0, 0, frame.outputWidth, frame.outputHeight};
+
+        // The tags are passed with the call, so they apply to this evaluation only.
+        const sl::ResourceLifecycle lifecycle = sl::ResourceLifecycle::eValidUntilEvaluate;
+        sl::ResourceTag colorTag(&color, sl::kBufferTypeScalingInputColor, lifecycle, &renderExtent);
+        sl::ResourceTag depthTag(&depth, sl::kBufferTypeDepth, lifecycle, &renderExtent);
+        sl::ResourceTag motionTag(&motion, sl::kBufferTypeMotionVectors, lifecycle, &renderExtent);
+        sl::ResourceTag outputTag(&output, sl::kBufferTypeScalingOutputColor, lifecycle, &outputExtent);
+        const sl::BaseStructure* inputs[] = {&handle, &colorTag, &depthTag, &motionTag, &outputTag};
+
+        result = state.sl->EvaluateFeature(sl::kFeatureDLSS, *token, inputs, 5, commands);
+        return static_cast<int32_t>(result);
+    }
 }
 
 namespace dlss
@@ -216,28 +334,15 @@ namespace dlss
         preferences.engine = sl::EngineType::eCustom;
         preferences.engineVersion = application.engineVersion;
         preferences.projectId = application.projectId;
-        preferences.renderAPI = api == GraphicsApi::Direct3D12 ? sl::RenderAPI::eD3D12 : sl::RenderAPI::eD3D11;
+        preferences.renderAPI = ToRenderApi(api);
 
         session.initResult = static_cast<int32_t>(state.sl->Init(preferences, sl::kSDKVersion));
         if (session.initResult != Ok)
             return session;
         state.initialized = true;
 
-        session.deviceResult = static_cast<int32_t>(state.sl->SetD3DDevice(device));
-        if (session.deviceResult != Ok)
-            return session;
-
-        LUID luid{};
-        if (!FindAdapter(device, api, luid))
-        {
-            session.supportResult = static_cast<int32_t>(sl::Result::eErrorNoSupportedAdapterFound);
-            return session;
-        }
-        sl::AdapterInfo adapter{};
-        adapter.deviceLUID = reinterpret_cast<uint8_t*>(&luid);
-        adapter.deviceLUIDSizeInBytes = sizeof(LUID);
-        session.supportResult = static_cast<int32_t>(state.sl->IsFeatureSupported(sl::kFeatureDLSS, adapter));
-        if (session.supportResult != Ok)
+        SetDevice(device, api, session);
+        if (session.deviceResult != Ok || session.supportResult != Ok)
             return session;
 
         sl::FeatureVersion version{};
@@ -293,44 +398,23 @@ namespace dlss
 
     int32_t Evaluate(uint32_t viewport, const Frame& frame, void* commandBuffer)
     {
-        if (!state.session.Started())
-            return ErrorNotStarted;
-
-        // Streamline accepts one set of constants per viewport and frame. A second evaluation without a present in
-        // between, such as an editor view that repaints twice, counts as a new frame.
-        auto last = state.evaluated.find(viewport);
-        if (last != state.evaluated.end() && last->second == state.frameIndex)
-            EndFrame();
-        state.evaluated[viewport] = state.frameIndex;
-
-        sl::FrameToken* token = nullptr;
-        sl::Result result = state.sl->GetNewFrameToken(token, &state.frameIndex);
-        if (result != sl::Result::eOk)
-            return static_cast<int32_t>(result);
-
-        sl::ViewportHandle handle(viewport);
-        result = state.sl->SetConstants(ToConstants(frame), *token, handle);
-        if (result != sl::Result::eOk)
-            return static_cast<int32_t>(result);
-
-        sl::Extent renderExtent{0, 0, frame.renderWidth, frame.renderHeight};
-        sl::Extent outputExtent{0, 0, frame.outputWidth, frame.outputHeight};
         sl::Resource color = ToResource(frame.color, frame.colorState);
         sl::Resource depth = ToResource(frame.depth, frame.depthState);
         sl::Resource motion = ToResource(frame.motion, frame.motionState);
         sl::Resource output = ToResource(frame.output, frame.outputState);
-
-        // The tags are passed with the call, so they apply to this evaluation only.
-        const sl::ResourceLifecycle lifecycle = sl::ResourceLifecycle::eValidUntilEvaluate;
-        sl::ResourceTag colorTag(&color, sl::kBufferTypeScalingInputColor, lifecycle, &renderExtent);
-        sl::ResourceTag depthTag(&depth, sl::kBufferTypeDepth, lifecycle, &renderExtent);
-        sl::ResourceTag motionTag(&motion, sl::kBufferTypeMotionVectors, lifecycle, &renderExtent);
-        sl::ResourceTag outputTag(&output, sl::kBufferTypeScalingOutputColor, lifecycle, &outputExtent);
-        const sl::BaseStructure* inputs[] = {&handle, &colorTag, &depthTag, &motionTag, &outputTag};
-
         void* commands = state.api == GraphicsApi::Direct3D11 ? state.immediateContext : commandBuffer;
-        result = state.sl->EvaluateFeature(sl::kFeatureDLSS, *token, inputs, 5, commands);
-        return static_cast<int32_t>(result);
+        return EvaluateResources(viewport, frame, color, depth, motion, output, commands);
+    }
+
+    int32_t EvaluateVulkan(uint32_t viewport, const Frame& frame, const VulkanImage& color, const VulkanImage& depth,
+        const VulkanImage& motion, const VulkanImage& output, void* commandBuffer)
+    {
+        sl::Resource colorResource = ToResource(color);
+        sl::Resource depthResource = ToResource(depth);
+        sl::Resource motionResource = ToResource(motion);
+        sl::Resource outputResource = ToResource(output);
+        return EvaluateResources(
+            viewport, frame, colorResource, depthResource, motionResource, outputResource, commandBuffer);
     }
 
     int32_t EndFrame()
@@ -339,6 +423,18 @@ namespace dlss
             return ErrorNotStarted;
 
         state.frameIndex++;
+        if (state.api == GraphicsApi::Vulkan)
+        {
+            if (state.vulkanPresent == nullptr)
+                return state.session.presentHookResult;
+
+            bool skipped = false;
+            VkResult presented = state.vulkanPresent(VK_NULL_HANDLE, nullptr, skipped);
+            VkResult after = state.vulkanAfterPresent();
+            bool vulkanFailed = presented != VK_SUCCESS || after != VK_SUCCESS;
+            return vulkanFailed ? static_cast<int32_t>(sl::Result::eErrorVulkanAPI) : Ok;
+        }
+
         if (state.present == nullptr)
             return state.session.presentHookResult;
 

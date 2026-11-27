@@ -53,13 +53,19 @@ public enum DlssResult
     /// <summary>sl.interposer.dll does not carry NVIDIA's signature.</summary>
     ErrorLibraryNotSigned = 1001,
 
-    /// <summary>The graphics API is not Direct3D 11 or Direct3D 12, or Unity lacks the plugin interface for it.</summary>
+    /// <summary>The graphics API is not Direct3D 11, Direct3D 12 or Vulkan, or Unity lacks the plugin interface for it.</summary>
     ErrorUnsupportedGraphicsApi = 1002,
 
     ErrorNotStarted = 1003,
 
     /// <summary><see cref="DlssContext.SetApplication"/> was not called before the first context.</summary>
     ErrorNoApplicationIdentity = 1004,
+
+    /// <summary>The Vulkan device was created without what DLSS needs. See <see cref="DlssContext.VulkanDeviceReady"/>.</summary>
+    ErrorVulkanDeviceNotReady = 1005,
+
+    /// <summary>On Vulkan, Unity could not hand over one of a frame's textures.</summary>
+    ErrorTextureAccess = 1006,
 
     /// <summary>The step has not happened yet.</summary>
     NotRun = int.MaxValue,
