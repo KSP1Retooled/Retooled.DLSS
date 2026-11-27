@@ -88,6 +88,9 @@ internal static class DlssNative
     internal static extern int RetooledDLSS_GetRenderer();
 
     [DllImport(Plugin)]
+    internal static extern int RetooledDLSS_IsVulkanDeviceReady();
+
+    [DllImport(Plugin)]
     internal static extern void RetooledDLSS_SetApplication(
         uint applicationId,
         byte[] nullTerminatedProjectId,

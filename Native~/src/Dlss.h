@@ -16,11 +16,43 @@ namespace dlss
     constexpr int32_t ErrorUnsupportedGraphicsApi = 1002;
     constexpr int32_t ErrorNotStarted = 1003;
     constexpr int32_t ErrorNoApplicationIdentity = 1004;
+    // The Vulkan device was created without the extensions and features that DLSS needs. See VulkanIntercept.h.
+    constexpr int32_t ErrorVulkanDeviceNotReady = 1005;
+    // Unity could not hand over one of a frame's textures on Vulkan.
+    constexpr int32_t ErrorTextureAccess = 1006;
 
     enum class GraphicsApi : int32_t
     {
         Direct3D11 = 0,
         Direct3D12 = 1,
+        Vulkan = 2,
+    };
+
+    // The device that Start takes on Vulkan: a VkInstance, a VkPhysicalDevice, a VkDevice and the family of the
+    // device's graphics queue. The device must have the extensions and features that Streamline's DLSS plugin asks
+    // for.
+    struct VulkanDevice
+    {
+        void* instance;
+        void* physicalDevice;
+        void* device;
+        uint32_t queueFamily;
+    };
+
+    // One of a frame's textures on Vulkan: a VkImage, a VkImageView of its first mip level and layer, the
+    // VkImageLayout it is in when the frame is evaluated, and the VkFormat, VkImageUsageFlags and size it was created
+    // with. DLSS returns the textures in the same layouts.
+    struct VulkanImage
+    {
+        void* image;
+        void* view;
+        uint32_t layout;
+        uint32_t format;
+        uint32_t usage;
+        uint32_t width;
+        uint32_t height;
+        uint32_t mipLevels;
+        uint32_t layers;
     };
 
     // The type is an sl::LogType: 0 for information, 1 for a warning, 2 for an error. May be called from any thread.
@@ -88,7 +120,7 @@ namespace dlss
     //
     // Textures are ID3D11Resource or ID3D12Resource pointers. The states are D3D12_RESOURCE_STATES that the textures
     // are in when the frame is evaluated, and are ignored on Direct3D 11. DLSS returns the textures in the same
-    // states.
+    // states. On Vulkan the textures are passed as VulkanImages and these eight fields are unused.
     struct Frame
     {
         void* color;
@@ -113,7 +145,8 @@ namespace dlss
         uint32_t flags;
     };
 
-    // Starts Streamline on the device and loads DLSS. Later calls return the first call's result until Stop.
+    // Starts Streamline on the device and loads DLSS. Later calls return the first call's result until Stop. The
+    // device is an ID3D11Device, an ID3D12Device or, on Vulkan, a VulkanDevice.
     const Session& Start(void* device, GraphicsApi api, const Application& application, int32_t logLevel, LogFunction* log);
 
     const Session& Current();
@@ -127,6 +160,11 @@ namespace dlss
     // Records the DLSS passes for a viewport into the command buffer: an ID3D12GraphicsCommandList, or null on
     // Direct3D 11 to use the immediate context. On Direct3D 12 the caller restores the command list's state afterwards.
     int32_t Evaluate(uint32_t viewport, const Frame& frame, void* commandBuffer);
+
+    // The same on Vulkan, into a VkCommandBuffer that is outside a render pass. The caller restores the command
+    // buffer's state afterwards.
+    int32_t EvaluateVulkan(uint32_t viewport, const Frame& frame, const VulkanImage& color, const VulkanImage& depth,
+        const VulkanImage& motion, const VulkanImage& output, void* commandBuffer);
 
     // Tells Streamline that the frame is about to be presented. Call once per frame.
     int32_t EndFrame();

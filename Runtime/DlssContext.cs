@@ -49,6 +49,13 @@ public sealed class DlssContext : IDisposable
     /// <summary>The graphics API the plugin saw at device creation.</summary>
     public static GraphicsDeviceType Renderer => (GraphicsDeviceType)DlssNative.RetooledDLSS_GetRenderer();
 
+    /// <summary>
+    /// Whether Unity's Vulkan device was created with the extensions and features DLSS needs. The plugin adds them on
+    /// NVIDIA GPUs when it is loaded before the device, which is why it is marked to load on startup. Without them a
+    /// session on Vulkan fails with <see cref="DlssResult.ErrorVulkanDeviceNotReady"/>.
+    /// </summary>
+    public static bool VulkanDeviceReady => DlssNative.RetooledDLSS_IsVulkanDeviceReady() != 0;
+
     /// <summary>The folder that holds NVIDIA's DLSS runtime, <c>nvngx_dlss.dll</c>. Applies when Streamline starts.</summary>
     /// <remarks>
     /// The package doesn't include the runtime, because NVIDIA's license covers distributing it as part of an
