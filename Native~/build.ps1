@@ -1,4 +1,5 @@
-# Builds Retooled.DLSS.Native.dll and the test harness. Needs CMake, Ninja, LLVM's clang-cl and the Windows SDK. It runs
+# Builds Retooled.DLSS.Native.dll and the test harness. Needs CMake, Ninja, LLVM's clang-cl, the Windows SDK and the
+# Vulkan headers, from the Vulkan SDK or from a Vulkan-Headers checkout passed as -VulkanInclude. It runs
 # fetch-sdk.ps1 first, which downloads NVIDIA's Streamline SDK if its files aren't in place yet.
 #
 #   build.ps1            builds the plugin and copies it into Plugins/x86_64
@@ -8,6 +9,7 @@
 param(
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release',
+    [string]$VulkanInclude,
     [switch]$Test
 )
 
@@ -25,10 +27,12 @@ if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) {
     $env:PATH = "$llvm;$env:PATH"
 }
 
+$vulkan = if ($VulkanInclude) { "-DVulkan_INCLUDE_DIR=$VulkanInclude" }
 cmake -S $native -B $build -G Ninja `
     "-DCMAKE_BUILD_TYPE=$Configuration" `
     -DCMAKE_CXX_COMPILER=clang-cl `
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
+    $vulkan
 if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
 
 cmake --build $build

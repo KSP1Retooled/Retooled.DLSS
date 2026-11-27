@@ -10,7 +10,8 @@ there. `DlssContext` is the C# side.
 ## Requirements
 
 - An NVIDIA RTX GPU.
-- Direct3D 11 or Direct3D 12. Vulkan is not supported yet. DLSS doesn't run on OpenGL, Linux or macOS.
+- Direct3D 11, Direct3D 12 or Vulkan. DLSS doesn't run on OpenGL, Linux or macOS.
+- On Vulkan, a device created with the extensions DLSS needs. See below.
 - On Direct3D 12, a Unity version that has the `IUnityGraphicsD3D12v8` plugin interface.
 
 On anything else a context fails, and `DlssContext.Session` and `context.Status` say why.
@@ -73,6 +74,25 @@ so the plugin uses Streamline's manual hooking mode on the device that Unity cre
 
 The plugin doesn't let Streamline download updated plugins or models.
 
+## Vulkan
+
+DLSS needs device extensions (`VK_NVX_binary_import`, `VK_NVX_image_view_handle`, `VK_KHR_push_descriptor` and
+`VK_EXT_buffer_device_address`) and the timeline semaphore, descriptor indexing and buffer device address features,
+which can only be enabled when the device is created. The plugin hooks Unity's device creation and adds them on NVIDIA
+GPUs that have them. The list is the one Streamline's DLSS plugin asks for, so it is tied to the Streamline version in
+this package.
+
+The plugin is marked to load on startup. Where a player loads it before Unity sets up Vulkan, Unity runs the hook as
+the editor does. Where it loads later, an application can supply a Vulkan layer of its own that loads
+`Retooled.DLSS.Native.dll` when the instance is created and calls its `RetooledVulkanIntercept` export: it takes the
+next `vkGetInstanceProcAddr` in the layer's chain and returns one whose `vkCreateInstance` and `vkCreateDevice` add
+what DLSS needs, or null if Unity has the hook already. A layer sees every instance in the process and outlives none
+of them unless it pins itself, so it should hook only the application's own device.
+`DlssContext.VulkanDeviceReady` says whether the device has what DLSS needs.
+
+Streamline wants a view of each texture on Vulkan. The plugin creates one per texture and frees them when the
+context goes and Unity says the frames that used them are done.
+
 ## Debugging
 
 - Streamline's warnings and errors go to the Unity log with a `[DLSS]` prefix. Set `DlssContext.LogLevel` before
@@ -82,7 +102,8 @@ The plugin doesn't let Streamline download updated plugins or models.
 
 ## Building the plugin
 
-Needs CMake, Ninja, LLVM's `clang-cl` and the Windows SDK.
+Needs CMake, Ninja, LLVM's `clang-cl`, the Windows SDK and the Vulkan headers, from the Vulkan SDK or from a checkout
+of KhronosGroup/Vulkan-Headers passed as `-VulkanInclude <its include folder>`.
 
 ```powershell
 Native~/build.ps1 -Test

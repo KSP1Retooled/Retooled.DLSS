@@ -1,10 +1,14 @@
 #pragma once
 
+#include <cassert>
+
 #include <windows.h>
+#include <vulkan/vulkan.h>
 
 #include "sl.h"
 #include "sl_consts.h"
 #include "sl_dlss.h"
+#include "sl_helpers_vk.h"
 
 // The functions of sl.interposer.dll that the plugin calls.
 //
@@ -16,6 +20,7 @@ struct StreamlineLibrary
     decltype(&slInit) Init;
     decltype(&slShutdown) Shutdown;
     decltype(&slSetD3DDevice) SetD3DDevice;
+    decltype(&slSetVulkanInfo) SetVulkanInfo;
     decltype(&slIsFeatureSupported) IsFeatureSupported;
     decltype(&slGetFeatureVersion) GetFeatureVersion;
     decltype(&slGetFeatureFunction) GetFeatureFunction;

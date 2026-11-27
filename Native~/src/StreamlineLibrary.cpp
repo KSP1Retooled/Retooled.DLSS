@@ -63,6 +63,7 @@ namespace
         bool resolved = Resolve(module, "slInit", library.Init)
             && Resolve(module, "slShutdown", library.Shutdown)
             && Resolve(module, "slSetD3DDevice", library.SetD3DDevice)
+            && Resolve(module, "slSetVulkanInfo", library.SetVulkanInfo)
             && Resolve(module, "slIsFeatureSupported", library.IsFeatureSupported)
             && Resolve(module, "slGetFeatureVersion", library.GetFeatureVersion)
             && Resolve(module, "slGetFeatureFunction", library.GetFeatureFunction)
